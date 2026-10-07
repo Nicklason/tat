@@ -33,16 +33,17 @@ jobs:
           fetch-depth: 0
       - name: Derive SHAs for nx affected
         uses: nrwl/nx-set-shas@v5
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
       - name: Install nx
-        # Only nx + typescript, at the versions in pnpm-lock.yaml and under the pnpm-workspace.yaml policies
+        # Only nx + typescript, at the versions in pnpm-lock.yaml. nx needs the real package.json and lockfile, so restore them.
         run: |
-          mkdir "$RUNNER_TEMP/nx"
-          cp -r pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs patches "$RUNNER_TEMP/nx"
-          jq '{name, packageManager, devDependencies: {nx: .devDependencies.nx, typescript: .devDependencies.typescript}}' package.json > "$RUNNER_TEMP/nx/package.json"
-          cd "$RUNNER_TEMP/nx"
-          npx -y "$(jq -r .packageManager package.json)" install --no-frozen-lockfile --ignore-scripts --config.allow-unused-patches=true
-          cd -
-          ln -s "$RUNNER_TEMP/nx/node_modules" node_modules
+          jq '{name, packageManager, devDependencies: {nx: .devDependencies.nx, typescript: .devDependencies.typescript}}' package.json > package.tmp.json
+          mv package.tmp.json package.json
+          pnpm install --no-frozen-lockfile --ignore-scripts --config.allow-unused-patches=true
+          git restore package.json pnpm-lock.yaml
       - name: Get affected
         id: affected
         run: |
