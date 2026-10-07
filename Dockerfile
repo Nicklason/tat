@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
-FROM node:24-alpine AS base
-RUN npm i -g pnpm@11
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS base
 WORKDIR /app
+# pnpm version from "packageManager" in package.json
+COPY package.json ./
+RUN npm i -g "$(node -p 'require("./package.json").packageManager')"
 ENV CI=true NX_DAEMON=false
 
 # 1. Dev dependencies: cached until package.json / lockfile / patches change.
@@ -32,7 +34,7 @@ RUN --mount=type=bind,from=deps,source=/root/.local/share/pnpm/store,target=/roo
     --mount=type=bind,from=deps,source=/root/.cache/pnpm,target=/root/.cache/pnpm,rw \
     pnpm install --frozen-lockfile --prod --offline
 
-FROM node:24-alpine AS runner
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 ARG APP
