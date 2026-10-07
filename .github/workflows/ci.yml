@@ -23,6 +23,8 @@ jobs:
     strategy:
       matrix:
         projectName: ${{fromJson(needs.affected.outputs.test)}}
+    env:
+      PROJECT: ${{ matrix.projectName }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,12 +34,8 @@ jobs:
         uses: ./.github/actions/setup-node
       - name: Build
         run: node ./scripts/nx.js run "$PROJECT:build"
-        env:
-          PROJECT: ${{ matrix.projectName }}
       - name: Test
         run: node ./scripts/nx.js run "$PROJECT:test"
-        env:
-          PROJECT: ${{ matrix.projectName }}
   e2e:
     runs-on: ubuntu-latest
     permissions:
