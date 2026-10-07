@@ -21,7 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read # nx-set-shas looks up the last successful run
     outputs:
       docker: ${{ steps.affected.outputs.DOCKER }}
       npm: ${{ steps.affected.outputs.NPM }}
