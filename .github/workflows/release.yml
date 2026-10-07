@@ -14,7 +14,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/affected.yml
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write # push the tag and create the GitHub release
     needs: [affected]
@@ -86,7 +86,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 #   publish_to_npm:
-#     runs-on: ubuntu-latest
+#     runs-on: ubuntu-24.04
 #     permissions:
 #       contents: read
 #       id-token: write # npm trusted publishing (OIDC)

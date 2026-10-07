@@ -15,7 +15,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/affected.yml
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     needs: [affected]
@@ -37,7 +37,7 @@ jobs:
       - name: Test
         run: node ./scripts/nx.js run "$PROJECT:test"
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     needs: [affected, test]
@@ -57,7 +57,7 @@ jobs:
         env:
           PROJECT: ${{ matrix.projectName }}
   ci-finished:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [affected, test, e2e]
     if: always()
     steps:
