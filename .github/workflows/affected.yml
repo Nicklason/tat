@@ -31,12 +31,24 @@ jobs:
           fetch-depth: 0
       - name: Derive SHAs for nx affected
         uses: nrwl/nx-set-shas@v5
-      - name: Setup Node
-        uses: ./.github/actions/setup-node
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - name: Use Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+      - name: Install nx
+        run: |
+          versions=$(node -p 'const d=require("./package.json").devDependencies; `nx@${d.nx} typescript@${d.typescript}`')
+          mkdir -p "$RUNNER_TEMP/nx"
+          (cd "$RUNNER_TEMP/nx" && echo '{}' > package.json && pnpm add $versions)
+          ln -s "$RUNNER_TEMP/nx/node_modules" node_modules
       - name: Get affected
         id: affected
         run: |
-          echo "DOCKER=$(pnpm exec nx show projects --affected --withTarget=docker --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
-          echo "NPM=$(pnpm exec nx show projects --affected --withTarget=npm --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
-          echo "TEST=$(pnpm exec nx show projects --affected --withTarget=build,test --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
-          echo "E2E=$(pnpm exec nx show projects --affected --withTarget=e2e --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "DOCKER=$(node_modules/.bin/nx show projects --affected --withTarget=docker --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "NPM=$(node_modules/.bin/nx show projects --affected --withTarget=npm --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "TEST=$(node_modules/.bin/nx show projects --affected --withTarget=build,test --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "E2E=$(node_modules/.bin/nx show projects --affected --withTarget=e2e --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
