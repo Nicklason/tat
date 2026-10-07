@@ -50,3 +50,6 @@ Thumbs.db
 
 # vim
 *.vim
+
+# ci cache test
+*.cachetest
