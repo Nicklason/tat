@@ -1,0 +1,202 @@
+import { RedisService } from '@liaoliaots/nestjs-redis';
+import { HttpService } from '@nestjs/axios';
+import {
+  HttpException,
+  Injectable,
+  NotFoundException,
+  OnModuleDestroy,
+} from '@nestjs/common';
+import {
+  ESCROW_BASE_URL,
+  ESCROW_GET_DURATION,
+  GetEscrowResponse,
+} from '@tf2-automatic/bot-data';
+import { Bot, EscrowResponse } from '@tf2-automatic/bot-manager-data';
+import { Redis } from 'ioredis';
+import { firstValueFrom } from 'rxjs';
+import SteamID from 'steamid';
+import { GetEscrowDto } from '@tf2-automatic/dto';
+import { InjectQueue } from '@nestjs/bullmq';
+import {
+  CustomJob,
+  EnqueueOptions,
+  QueueManagerWithEvents,
+} from '@tf2-automatic/queue';
+import { Queue } from 'bullmq';
+import { EscrowData, EscrowJobData, EscrowResult } from './escrow.types';
+import { ClsService } from 'nestjs-cls';
+import assert from 'assert';
+import { pack, unpack } from 'msgpackr';
+import { getBotUrl } from '../heartbeats/heartbeats.utils';
+
+const ESCROW_EXPIRE_TIME = 2 * 60;
+const ESCROW_EXPIRE_TIME_LONG = 60 * 60;
+
+assert(
+  ESCROW_EXPIRE_TIME_LONG > ESCROW_EXPIRE_TIME,
+  'ESCROW_EXPIRE_TIME_LONG must be greater than ESCROW_EXPIRE_TIME',
+);
+
+@Injectable()
+export class EscrowService implements OnModuleDestroy {
+  private readonly redis: Redis = this.redisService.getOrThrow();
+
+  private readonly queueManager: QueueManagerWithEvents<
+    EscrowJobData['options'],
+    EscrowJobData
+  >;
+
+  constructor(
+    private readonly redisService: RedisService,
+    private readonly httpService: HttpService,
+    @InjectQueue('escrow')
+    queue: Queue<CustomJob<EscrowJobData>>,
+    cls: ClsService,
+  ) {
+    this.queueManager = new QueueManagerWithEvents(queue, cls);
+  }
+
+  onModuleDestroy() {
+    return this.queueManager.close();
+  }
+
+  private getJobId(steamid: SteamID): string {
+    return `escrow_${steamid.getSteamID64()}`;
+  }
+
+  private getKey(steamid: SteamID): string {
+    return `escrow:${steamid.getSteamID64()}`;
+  }
+
+  addJob(steamid: SteamID, dto: GetEscrowDto) {
+    const jobId = this.getJobId(steamid);
+
+    const options: EnqueueOptions = {
+      bot: dto.bot ? dto.bot.getSteamID64() : undefined,
+    };
+
+    return this.queueManager.addJob(
+      jobId,
+      'load',
+      {
+        steamid64: steamid.getSteamID64(),
+        token: dto.token,
+        offerId: dto.offerId,
+        ttl: dto.ttl,
+      },
+      options,
+    );
+  }
+
+  removeJob(steamid: SteamID) {
+    return this.queueManager.removeJobById(this.getJobId(steamid));
+  }
+
+  async getEscrow(
+    steamid: SteamID,
+    query: GetEscrowDto,
+  ): Promise<EscrowResponse> {
+    try {
+      const cached = await this.getEscrowFromCache(steamid);
+      return cached;
+    } catch (err) {
+      if (!(err instanceof NotFoundException)) {
+        throw err;
+      }
+    }
+
+    const job = await this.addJob(steamid, query);
+
+    await this.queueManager.waitUntilFinished(job, 10000);
+
+    return this.getEscrowFromCache(steamid);
+  }
+
+  async getEscrowFromBot(
+    bot: Bot,
+    steamid: SteamID,
+    token?: string,
+    offerId?: string,
+  ): Promise<GetEscrowResponse> {
+    const response = await firstValueFrom(
+      this.httpService.get<GetEscrowResponse>(
+        `${getBotUrl(bot)}${ESCROW_BASE_URL}${ESCROW_GET_DURATION}`.replace(
+          ':steamid',
+          steamid.getSteamID64(),
+        ),
+        {
+          params: {
+            token,
+            offerId,
+          },
+        },
+      ),
+    );
+
+    return response.data;
+  }
+
+  async getEscrowFromCache(steamid: SteamID): Promise<EscrowResponse> {
+    const key = this.getKey(steamid);
+
+    const [ttl, object] = await Promise.all([
+      this.redis.ttl(key),
+      this.redis.hgetallBuffer(key),
+    ]);
+
+    if (ttl === -2 || object === null) {
+      throw new NotFoundException('Escrow not found');
+    }
+
+    if (object.error) {
+      const error = unpack(object.error);
+      throw new HttpException(error.message, error.statusCode);
+    } else if (!object.result) {
+      throw new NotFoundException('Escrow not found');
+    }
+
+    const timestamp = parseInt(object.timestamp.toString(), 10);
+    const result = unpack(object.result) as GetEscrowResponse;
+
+    return {
+      timestamp,
+      ttl,
+      escrowDays: result.escrowDays,
+    };
+  }
+
+  async saveEscrow(steamid: SteamID, result: EscrowResult): Promise<void> {
+    const key = this.getKey(steamid);
+
+    const save: EscrowData = {
+      timestamp: result.timestamp,
+      bot: result.bot,
+    };
+
+    if (result.result) {
+      save.result = pack(result.result);
+    }
+
+    let ttl = result.ttl ?? ESCROW_EXPIRE_TIME;
+
+    if (result.error) {
+      save.error = pack(result.error);
+      if (result.error.statusCode === 400) {
+        // Error 400 should not be retried so we set a longer ttl
+        ttl = result.ttl ?? ESCROW_EXPIRE_TIME_LONG;
+      }
+    }
+
+    const multi = this.redis.multi().del(key).hset(key, save);
+
+    if (ttl > 0) {
+      multi.expire(key, ttl);
+    }
+
+    await multi.exec();
+  }
+
+  async deleteEscrow(steamid: SteamID): Promise<void> {
+    await this.redis.del(this.getKey(steamid));
+  }
+}

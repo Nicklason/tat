@@ -1,0 +1,15 @@
+{
+  "name": "@tf2-automatic/tf2-format",
+  "version": "latest",
+  "dependencies": {
+    "tslib": "^2.7.0",
+    "protobufjs": "^8.0.0",
+    "cbor": "^10.0.3"
+  },
+  "homepage": "https://github.com/tf2-automatic/tf2-automatic",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tf2-automatic/tf2-automatic.git"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,50 @@
+volumes:
+  bot:
+  rabbitmq:
+services:
+  rabbitmq:
+    image: rabbitmq:3.13.0-management-alpine
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: 'test'
+      RABBITMQ_DEFAULT_PASS: 'test'
+    volumes:
+      - 'rabbitmq:/var/lib/rabbitmq'
+    healthcheck:
+      test: rabbitmq-diagnostics check_port_connectivity
+      # Adjust the health checks to better fit your needs
+      start_period: 60s
+      interval: 5s
+      timeout: 1s
+      retries: 3
+  bot:
+    image: ghcr.io/tf2-automatic/bot:latest
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    environment:
+      DEBUG: true
+      # Input your bot's credentials here
+      STEAM_USERNAME: ''
+      STEAM_PASSWORD: ''
+      STEAM_API_KEY: ''
+      STEAM_SHARED_SECRET: ''
+      STEAM_IDENTITY_SECRET: ''
+      # RabbitMQ connection details
+      EVENTS_TYPE: 'rabbitmq'
+      RABBITMQ_HOST: 'rabbitmq'
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: 'test'
+      RABBITMQ_PASSWORD: 'test'
+      RABBITMQ_VHOST: ''
+      # Storage settings
+      STORAGE_TYPE: 'local'
+      STORAGE_LOCAL_PATH: '/data'
+    volumes:
+      - 'bot:/data'

@@ -1,0 +1,42 @@
+name: Affected
+
+on:
+  workflow_call:
+    outputs:
+      docker:
+        description: "Affected docker projects"
+        value: ${{ jobs.affected.outputs.DOCKER }}
+      npm:
+        description: "Affected npm projects"
+        value: ${{ jobs.affected.outputs.NPM }}
+      test:
+        description: "Affected test projects"
+        value: ${{ jobs.affected.outputs.TEST }}
+      e2e:
+        description: "Affected e2e projects"
+        value: ${{ jobs.affected.outputs.E2E }}
+
+jobs:
+  affected:
+    runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.affected.outputs.DOCKER }}
+      npm: ${{ steps.affected.outputs.NPM }}
+      test: ${{ steps.affected.outputs.TEST }}
+      e2e: ${{ steps.affected.outputs.E2E }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Derive SHAs for nx affected
+        uses: nrwl/nx-set-shas@v5
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+      - name: Get affected
+        id: affected
+        run: |
+          echo "DOCKER=$(pnpm exec nx show projects --affected --withTarget=docker --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "NPM=$(pnpm exec nx show projects --affected --withTarget=npm --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "TEST=$(pnpm exec nx show projects --affected --withTarget=build,test --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT
+          echo "E2E=$(pnpm exec nx show projects --affected --withTarget=e2e --json | tail -n 1 | jq -c '.')" >> $GITHUB_OUTPUT

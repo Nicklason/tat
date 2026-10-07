@@ -1,0 +1,195 @@
+import { HttpService } from '@nestjs/axios';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Config, ManagerConfig } from '../common/config/configuration';
+import { firstValueFrom } from 'rxjs';
+import { OnEvent } from '@nestjs/event-emitter';
+import ip from 'ip';
+import {
+  BotHeartbeat,
+  HEARTBEAT_BASE_URL,
+  HEARTBEAT_PATH,
+} from '@tf2-automatic/bot-manager-data';
+import { MetadataService } from '../metadata/metadata.service';
+import { AxiosError } from 'axios';
+import { getEnv } from '@tf2-automatic/config';
+import { getAppNameAndVersion } from '@tf2-automatic/config';
+
+@Injectable()
+export class ManagerService implements OnModuleDestroy {
+  private readonly logger = new Logger(ManagerService.name);
+
+  private readonly managerConfig =
+    this.configService.getOrThrow<ManagerConfig>('manager');
+
+  private timeout: NodeJS.Timeout | null = null;
+  private attempts = 0;
+
+  private readonly version: string | undefined;
+
+  private ready = false;
+  private beating = false;
+
+  constructor(
+    private readonly configService: ConfigService<Config>,
+    private readonly httpService: HttpService,
+    private readonly metadataService: MetadataService,
+  ) {
+    if (getEnv('NODE_ENV', 'string') === 'production') {
+      const app = getAppNameAndVersion();
+      if (app === null) {
+        throw new Error('Failed to get app name and version');
+      }
+
+      this.version = app.version;
+    }
+  }
+
+  private getHost() {
+    const host = this.configService.get<string>('host');
+    if (host) {
+      return host;
+    }
+
+    return this.getIp();
+  }
+
+  private getIp() {
+    const fromConfig = this.configService.get<string>('ip');
+    if (fromConfig) {
+      return fromConfig;
+    }
+
+    return ip.address(
+      getEnv('NODE_ENV', 'string') === 'development' ? 'private' : 'public',
+      'ipv4',
+    );
+  }
+
+  private async sendHeartbeat(): Promise<void> {
+    this.logger.debug('Sending heartbeat...');
+
+    const heartbeat: BotHeartbeat = {
+      host: this.getHost(),
+      // FIXME: Port is apparently a string in the config
+      port: parseInt(this.configService.getOrThrow('port'), 10),
+      interval: this.managerConfig.heartbeatInterval as number,
+      version: this.version,
+    };
+
+    await firstValueFrom(
+      this.httpService.post(
+        `${this.managerConfig.url}${HEARTBEAT_BASE_URL}${HEARTBEAT_PATH}`.replace(
+          ':steamid',
+          this.metadataService.getOrThrowSteamID().getSteamID64(),
+        ),
+        heartbeat,
+      ),
+    );
+  }
+
+  private sendHeartbeatLoop() {
+    if (!this.managerConfig.enabled) {
+      return;
+    }
+
+    this.beating = true;
+
+    return this.sendHeartbeat()
+      .then(() => {
+        this.attempts = 0;
+      })
+      .catch((err) => {
+        let errorMessage = err.message;
+        if (err instanceof AxiosError && err.response) {
+          errorMessage = err.response.data.message ?? err.message;
+        }
+
+        this.logger.warn('Failed to send heartbeat: ' + errorMessage);
+        this.attempts++;
+      })
+      .finally(() => {
+        const interval = this.managerConfig.heartbeatInterval as number;
+
+        let wait =
+          this.attempts > 0 ? 2 ** (this.attempts - 1) * 1000 : interval;
+
+        if (wait > interval) {
+          // Don't wait longer than the interval
+          wait = interval;
+        }
+
+        this.clearTimeout();
+
+        this.timeout = setTimeout(() => this.sendHeartbeatLoop(), wait).unref();
+      });
+  }
+
+  private async deleteBot() {
+    const steamid = this.metadataService.getSteamID();
+    if (!steamid) {
+      return;
+    }
+
+    this.logger.debug('Removing bot...');
+
+    await firstValueFrom(
+      this.httpService.delete(
+        `${this.managerConfig.url}${HEARTBEAT_BASE_URL}${HEARTBEAT_PATH}`.replace(
+          ':steamid',
+          this.metadataService.getOrThrowSteamID().getSteamID64(),
+        ),
+      ),
+    ).catch((err) => {
+      if (err instanceof AxiosError && err.response?.status === 404) {
+        return;
+      }
+
+      throw err;
+    });
+  }
+
+  private clearTimeout() {
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
+  }
+
+  @OnEvent('bot.ready')
+  handleBotReady() {
+    this.ready = true;
+    if (!this.beating) {
+      this.sendHeartbeatLoop();
+    }
+  }
+
+  @OnEvent('bot.disconnected')
+  handleBotDisconnected() {
+    this.stopHeartbeatLoop();
+  }
+
+  @OnEvent('bot.connected')
+  handleBotConnected() {
+    if (this.ready && !this.beating) {
+      this.sendHeartbeatLoop();
+    }
+  }
+
+  onModuleDestroy(): Promise<void> {
+    return this.stopHeartbeatLoop();
+  }
+
+  private stopHeartbeatLoop() {
+    this.clearTimeout();
+    this.beating = false;
+
+    if (!this.managerConfig.enabled) {
+      return Promise.resolve();
+    }
+
+    return this.deleteBot().catch((err) => {
+      this.logger.warn('Failed to remove bot: ' + err.message);
+    });
+  }
+}
