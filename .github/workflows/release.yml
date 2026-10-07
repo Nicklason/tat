@@ -23,8 +23,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Setup Node
-        uses: ./.github/actions/setup-node
       - name: Release
         uses: cycjimmy/semantic-release-action@v6
         id: semantic
