@@ -87,6 +87,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 #   publish_to_npm:
 #     runs-on: ubuntu-latest
+#     permissions:
+#       contents: read
+#       id-token: write # npm trusted publishing (OIDC)
 #     needs: [affected, release]
 #     if: needs.release.outputs.new_release_published == 'true' && needs.affected.outputs.npm != '[]'
 #     strategy:
@@ -95,8 +98,14 @@ jobs:
 #         projectName: ${{fromJson(needs.affected.outputs.npm)}}
 #     steps:
 #       - name: Checkout
-#         uses: actions/checkout@v7
+#         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+#         with:
+#           persist-credentials: false
 #       - name: Setup Node
 #         uses: ./.github/actions/setup-node
 #       - name: Build and publish
-#         run: pnpm exec nx run ${{ matrix.projectName }}:npm --access=public --release-version=${{ needs.release.outputs.new_release_version }} --release-tag=${{ needs.release.outputs.new_release_channel }}
+#         run: pnpm exec nx run "$PROJECT:npm" --access=public --release-version="$VERSION" --release-tag="$CHANNEL"
+#         env:
+#           PROJECT: ${{ matrix.projectName }}
+#           VERSION: ${{ needs.release.outputs.new_release_version }}
+#           CHANNEL: ${{ needs.release.outputs.new_release_channel }}
