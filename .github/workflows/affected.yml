@@ -19,6 +19,9 @@ on:
 jobs:
   affected:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # nx-set-shas looks up the last successful run
     outputs:
       docker: ${{ steps.affected.outputs.DOCKER }}
       npm: ${{ steps.affected.outputs.NPM }}
@@ -31,24 +34,16 @@ jobs:
           fetch-depth: 0
       - name: Derive SHAs for nx affected
         uses: nrwl/nx-set-shas@v5
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-      - name: Use Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: package.json
       - name: Install nx
         run: |
-          versions=$(node -p 'const d=require("./package.json").devDependencies; `nx@${d.nx} typescript@${d.typescript}`')
-          mkdir -p "$RUNNER_TEMP/nx"
-          cd "$RUNNER_TEMP/nx"
-          echo '{}' > package.json
-          printf 'allowBuilds:\n  nx: false\n' > pnpm-workspace.yaml
-          pnpm add $versions
-          cd -
+          node --version
+          # --before mirrors minimumReleaseAge in pnpm-workspace.yaml
+          npm install --prefix "$RUNNER_TEMP/nx" --no-audit --no-fund --ignore-scripts \
+            --before="$(date -u -d '-1 day' +%FT%TZ)" \
+            $(jq -r '.devDependencies | "nx@\(.nx) typescript@\(.typescript)"' package.json)
           ln -s "$RUNNER_TEMP/nx/node_modules" node_modules
+          # nx's pnpm lockfile parser requires this file; it only reads hoistedDependencies
+          echo '{}' > node_modules/.modules.yaml
       - name: Get affected
         id: affected
         run: |
