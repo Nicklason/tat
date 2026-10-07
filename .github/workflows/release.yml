@@ -48,50 +48,41 @@ jobs:
       new_release_version: ${{ steps.semantic.outputs.new_release_version }}
       new_release_channel: ${{ steps.semantic.outputs.new_release_channel }}
   publish_to_docker:
-    runs-on: ubuntu-latest
     needs: [affected, release]
     if: needs.release.outputs.new_release_published == 'true' && needs.affected.outputs.docker != '[]'
     strategy:
       fail-fast: false
       matrix:
-        projectName: ${{fromJson(needs.affected.outputs.docker)}}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.projectName }}
-          flavor: |
-            latest=false
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}},enable=true,value=v${{ needs.release.outputs.new_release_version }}
-            type=semver,pattern={{major}},enable={{is_default_branch}},value=v${{ needs.release.outputs.new_release_version }}
-            type=semver,pattern={{major}}.{{minor}},enable={{is_default_branch}},value=v${{ needs.release.outputs.new_release_version }}
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-        with:
-          image: tonistiigi/binfmt:qemu-v10.2.3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
+        projectName: ${{ fromJson(needs.affected.outputs.docker) }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    uses: docker/github-builder/.github/workflows/build.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
+    with:
+      output: image
+      push: true
+      platforms: linux/amd64,linux/arm64
+      cache: true
+      cache-mode: max # default "min" does not cache the deps/build/installer stages
+      cache-scope: ${{ matrix.projectName }}
+      set-meta-labels: true
+      build-args: |
+        APP=${{ matrix.projectName }}
+        VERSION=${{ needs.release.outputs.new_release_version }}
+      meta-images: ghcr.io/${{ github.repository_owner }}/${{ matrix.projectName }}
+      meta-flavor: |
+        latest=false
+      meta-tags: |
+        type=raw,value=latest,enable={{is_default_branch}}
+        type=semver,pattern={{version}},enable=true,value=v${{ needs.release.outputs.new_release_version }}
+        type=semver,pattern={{major}},enable={{is_default_branch}},value=v${{ needs.release.outputs.new_release_version }}
+        type=semver,pattern={{major}}.{{minor}},enable={{is_default_branch}},value=v${{ needs.release.outputs.new_release_version }}
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Node
-        uses: ./.github/actions/setup-node
-      - name: Build and push
-        run: node ./scripts/nx.js run ${{ matrix.projectName }}:docker
-        env:
-          INPUT_TAGS: ${{ steps.meta.outputs.tags }}
-          INPUT_LABELS: ${{ steps.meta.outputs.labels }}
-          INPUT_BUILD_ARGS: |
-            VERSION=${{ needs.release.outputs.new_release_version }}
-            SOURCE_DIR=dist/apps/${{ matrix.projectName }}
 #   publish_to_npm:
 #     runs-on: ubuntu-latest
 #     needs: [affected, release]
