@@ -43,7 +43,11 @@ jobs:
         run: |
           versions=$(node -p 'const d=require("./package.json").devDependencies; `nx@${d.nx} typescript@${d.typescript}`')
           mkdir -p "$RUNNER_TEMP/nx"
-          (cd "$RUNNER_TEMP/nx" && echo '{}' > package.json && pnpm add $versions)
+          cd "$RUNNER_TEMP/nx"
+          echo '{}' > package.json
+          printf 'allowBuilds:\n  nx: false\n' > pnpm-workspace.yaml
+          pnpm add $versions
+          cd -
           ln -s "$RUNNER_TEMP/nx/node_modules" node_modules
       - name: Get affected
         id: affected
