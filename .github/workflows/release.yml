@@ -20,23 +20,33 @@ jobs:
     if: needs.affected.outputs.docker != '[]' || needs.affected.outputs.npm != '[]'
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Release
-        uses: cycjimmy/semantic-release-action@v6
-        id: semantic
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
-          semantic_version: 25
+          run_install: false
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: package.json
+      - name: Install semantic-release
+        # Only semantic-release + plugins, at the versions in pnpm-lock.yaml
+        run: |
+          jq '{name, packageManager, devDependencies: (.devDependencies | with_entries(select(.key | test("semantic-release"))))}' package.json > package.tmp.json
+          mv package.tmp.json package.json
+          pnpm install --no-frozen-lockfile --ignore-scripts --config.allow-unused-patches=true
+          git restore package.json pnpm-lock.yaml
+      - name: Release
+        id: semantic
+        run: node scripts/release.mjs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       new_release_published: ${{ steps.semantic.outputs.new_release_published }}
       new_release_version: ${{ steps.semantic.outputs.new_release_version }}
-      new_release_channel: ${{ steps.semantic.outputs.new_release_channel || 'latest' }}
-      new_release_major_version: ${{ steps.semantic.outputs.new_release_major_version }}
-      new_release_minor_version: ${{ steps.semantic.outputs.new_release_minor_version }}
-      new_release_patch_version: ${{ steps.semantic.outputs.new_release_patch_version }}
+      new_release_channel: ${{ steps.semantic.outputs.new_release_channel }}
   publish_to_docker:
     runs-on: ubuntu-latest
     needs: [affected, release]
